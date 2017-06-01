@@ -13,6 +13,21 @@ public:
 	auto& set(val first, Args... args) {
 		return m_data.insert(std::make_pair(std::make_tuple(std::forward<Args>(args)...),std::move(first)));
 	};
+	auto&& begin() {
+		return m_data.begin();
+	}
+	auto&& end() {
+		return m_data.end();
+	}
+	auto&& cbegin() {
+		return m_data.cbegin();
+	}
+	auto&& cend() {
+		return m_data.cend();
+	}
+	auto&& find(Args... args) {
+		return m_data.find(std::forward<Args>(args)...);
+	}
 private:
 	class tupleHash {
 		public:
@@ -23,7 +38,7 @@ private:
 		template<int i>
 		struct worky{
 			std::size_t operator()(const std::tuple<Args...>& things)const {
-				return std::hash<std::remove_const<std::remove_reference<decltype(std::get<i>(things))>::type >::type >()(std::get<i>(things)) ^ worky<i + 1>()(things);
+				return std::hash<std::remove_const<std::remove_reference<decltype(std::get<i>(things))>::type>::type>()(std::get<i>(things)) ^ worky<i + 1>()(things);
 			}
 		};
 
