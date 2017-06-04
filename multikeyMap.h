@@ -2,14 +2,13 @@
 #include <unordered_map>
 #include <tuple>
 #include <type_traits>
-//#include "flat_hash_map.hpp"
 
 template<typename val,typename... Args>
 class multiKeyMap {
 public:
 	using type = multiKeyMap<val, Args...>;// = type;
 	using tupleType = std::tuple<Args...>;
-	multiKeyMap() = default;
+	constexpr multiKeyMap() = default;
 	val& get(Args... args) {
 		return m_data[std::make_tuple(std::forward<Args>(args)...)];
 	};
@@ -22,45 +21,59 @@ public:
 	auto& end() {
 		return m_data.end();
 	}
-	auto& cbegin() {
+	const auto& cbegin() {
 		return m_data.cbegin();
 	}
-	auto& cend() {
+	const auto& cend() {
 		return m_data.cend();
 	}
 	auto& find(Args... args) {
-		return m_data.find(std::forward<Args>(args)...);
+		return m_data.find(std::make_tuple(std::forward<Args>(args)...));
 	}
 	val& operator()(Args... args) {
 		return m_data[std::make_tuple(std::forward<Args>(args)...)];
 	}
+	
+
+	const val& operator[](const std::tuple<Args...>& abc) {
+		return m_data[abc];
+	}
+	const val& operator[](const std::tuple<Args...>&& abc) {
+		return m_data[std::forward<std::tuple<Args...>>(abc)];
+	}
+	
 	template<typename T>
-	auto operator[](T t) {
-		return hmm<sizeof...(Args)-1, T>(*this,t);
+		const auto operator[](T t) {
+		using currentType = std::decay_t<decltype(std::get<0>(tupleType{})) >;
+		static_assert(std::is_convertible_v < std::decay_t<T>, std::decay_t<decltype(std::get<0>(tupleType{}))> >);
+
+		return multiKeyMapIndexer<sizeof...(Args)-1, T>(*this, std::make_tuple(std::move(t)));
 	}
 
 	template<int i,typename ... Targs>
-	class hmm {
+	class multiKeyMapIndexer {
 	public:
-		hmm(type& m, Targs&&... args) :mapy(m), m_stuff(std::make_tuple(std::forward<Targs>(args)...)) {};
-		hmm(type& m, std::tuple<Targs...>&& args) :mapy(m),m_stuff(std::move(args)) {};
-
+		multiKeyMapIndexer(type& m, std::tuple<Targs...>&& args) :mapy(m),m_stuff(std::move(args)) {};
 		template<typename T>
-		auto operator[](T t) const{
-			return hmm<i - 1, Targs..., T>(mapy,std::tuple_cat(std::move(m_stuff),std::make_tuple(std::move(t))));
+		const auto operator[](T t) const{
+			using currentType = std::decay_t<decltype(std::get<sizeof...(Args)-i>(tupleType{}))>;
+			static_assert(std::is_convertible_v < std::decay_t<T>, currentType >);
+
+			return multiKeyMapIndexer<i - 1, Targs..., T>(mapy,std::tuple_cat(std::move(m_stuff),std::make_tuple(std::move(t))));
 		}
 	private:
 		type& mapy;
 		std::tuple<Targs...> m_stuff;
 	};
 	template<typename ... Targs>
-	class hmm<1,Targs...> {
+	class multiKeyMapIndexer<1,Targs...> {
 	public:
-		hmm(type& m, Targs&&... args) :mapy(m), m_stuff(std::make_tuple(std::forward<Targs>(args)...)) {};
-		hmm(type& m, std::tuple<Targs...>&& args) :mapy(m), m_stuff(std::move(args)) {};
-
+		multiKeyMapIndexer(type& m, std::tuple<Targs...>&& args) :mapy(m), m_stuff(std::move(args)) {};
 		template<typename T>
 		val& operator[](T t)const {
+			using currentType = std::decay_t<decltype(std::get<sizeof...(Args)-1>(tupleType{})) > ;
+			static_assert(std::is_convertible_v < std::decay_t<T>, currentType >);
+
 			return mapy.m_data[std::tuple_cat(std::move(m_stuff), std::make_tuple(std::move(t)))];
 		}
 	private:
@@ -71,8 +84,6 @@ private:
 	class tupleHash {
 		public:
 			std::size_t operator()(const std::tuple<Args...>& thing) const{
-				//std::cout << std::hash<std::size_t>()(worky<0>()(thing)) << "\n";
-				//std::cout << std::hash<std::size_t>()(tupleHashImpl(thing, std::index_sequence_for<Args...>())) << '\n';
 				return std::hash<std::size_t>()(tupleHashImpl(thing, std::index_sequence_for<Args...>()));
 			};
 		private:
@@ -80,25 +91,27 @@ private:
 			std::size_t tupleHashImpl(const std::tuple<Args...>& thing,std::index_sequence<i...>)const{
 				std::size_t reVal = 0;
 				//( ( reVal^std::hash<std::decay_t<decltype(std::get<i>(thing))>>()(std::get<i>(thing)) ), ...);
-				(void)std::initializer_list<int>{(reVal^=7*i+(i+1)*std::hash<std::decay_t<decltype(std::get<i>(thing))>>()(std::get<i>(thing)), 0)...};
+				(void)std::initializer_list<int>{(reVal^=(i+1)*(i+1)+(i+1)*std::hash<std::decay_t<decltype(std::get<i>(thing))>>()(std::get<i>(thing)), 0)...};
 				return reVal;
 			}
-		/*
-		template<int i>
-		struct worky{
-			std::size_t operator()(const std::tuple<Args...>& things)const {
-				return (7*i+(i+1)*std::hash<std::decay<decltype(std::get<i>(things))>::type>()(std::get<i>(things))) ^ worky<i + 1>()(things);
-			}
-		};
-		template<>
-		struct worky<sizeof...(Args)> {
-			std::size_t operator()(const std::tuple<Args...>& things)const {
-				return 0;
-			}
-		};
-		//*/
 	};
-	friend class hmm<1, Args...>;
+	friend class multiKeyMapIndexer<1, Args...>;
 	std::unordered_map<std::tuple<Args...>, val,tupleHash> m_data;
+	//static_assert(tupleType, );
 };
 
+
+/*
+template<int i>
+struct worky{
+std::size_t operator()(const std::tuple<Args...>& things)const {
+return ((i+1)*(i+1)+(i+1)*std::hash<std::decay<decltype(std::get<i>(things))>::type>()(std::get<i>(things))) ^ worky<i + 1>()(things);
+}
+};
+template<>
+struct worky<sizeof...(Args)> {
+std::size_t operator()(const std::tuple<Args...>& things)const {
+return 0;
+}
+};
+//*/
