@@ -15,7 +15,8 @@ namespace std {
 		std::size_t tupleHashImpl(const std::tuple<Args...>& thing, std::index_sequence<i...>)const {
 			std::size_t reVal = 0x2345;
 			//( ( reVal^=std::hash<std::decay_t<decltype(std::get<i>(thing))>>()(std::get<i>(thing)) ), ...);
-			(void)std::initializer_list<int>{(reVal ^= i + listOfPrimes[i*i] * std::hash<std::decay_t<decltype(std::get<i>(thing))>>()(std::get<i>(thing)), 0)...};
+			//found this online
+			(void)std::initializer_list<int>{(reVal ^= (i + listOfPrimes[i*i] * std::hash<std::decay_t<decltype(std::get<i>(thing))>>()(std::get<i>(thing))) + (reVal << 2) + (reVal >> 2), 0)...};
 			return reVal;
 		}
 	};
