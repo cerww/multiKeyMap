@@ -2,116 +2,93 @@
 #include <unordered_map>
 #include <tuple>
 #include <type_traits>
+constexpr uint64_t listOfPrimes[] = { 2,3,5,7,11,13,17,19,23,29,31,37,41,43,47,53,57,61,67,71,73,79,83,87,91,97,101,103,107,113,127 };
+namespace std {
+	template<typename ...Args>
+	class hash<std::tuple<Args...>> {
+	public:
+		std::size_t operator()(const std::tuple<Args...>& thing) const {
+			return std::hash<std::size_t>{}(tupleHashImpl(thing, std::index_sequence_for<Args...>())*listOfPrimes[sizeof...(Args)]);
+		};
+	private:
+		template<std::size_t ...i>
+		std::size_t tupleHashImpl(const std::tuple<Args...>& thing, std::index_sequence<i...>)const {
+			std::size_t reVal = 0x2345;
+			//( ( reVal^=std::hash<std::decay_t<decltype(std::get<i>(thing))>>()(std::get<i>(thing)) ), ...);
+			(void)std::initializer_list<int>{(reVal ^= i + listOfPrimes[i*i] * std::hash<std::decay_t<decltype(std::get<i>(thing))>>()(std::get<i>(thing)), 0)...};
+			return reVal;
+		}
+	};
+}
+template<typename...Args>
+using tupleHash = std::hash<std::tuple<Args...>>;
+
 
 template<typename val,typename... Args>
 class multiKeyMap {
 public:
 	using type = multiKeyMap<val, Args...>;// = type;
 	using tupleType = std::tuple<Args...>;
-	constexpr multiKeyMap() = default;
-	val& get(Args... args) {
-		return m_data[std::make_tuple(std::forward<Args>(args)...)];
-	};
-	auto set(val first, Args... args) {
-		return m_data.insert(std::make_pair(std::make_tuple(std::forward<Args>(args)...),std::move(first)));
-	};
+	using tupleHash_ = std::hash<tupleType>;//why did i put a _
+	using mapType = std::unordered_map<tupleType, val>;
+	
 	auto& begin() {
 		return m_data.begin();
 	}
 	auto& end() {
 		return m_data.end();
 	}
-	const auto& cbegin() {
+	const auto& cbegin() const{
 		return m_data.cbegin();
 	}
-	const auto& cend() {
+	const auto& cend() const{
 		return m_data.cend();
 	}
 	auto& find(Args... args) {
 		return m_data.find(std::make_tuple(std::forward<Args>(args)...));
 	}
-	val& operator()(Args... args) {
-		return m_data[std::make_tuple(std::forward<Args>(args)...)];
+	const auto& find(Args... args)const {
+		return m_data.find(std::make_tuple(std::forward<Args>(args)...));
 	}
-	
-
-	const val& operator[](const std::tuple<Args...>& abc) {
+	std::size_t bucket_count() const{
+		return m_data.bucket_count();
+	}
+	std::size_t size() const{
+		return m_data.size();
+	}
+	val& operator[](const std::tuple<Args...>& abc) {
 		return m_data[abc];
 	}
-	const val& operator[](const std::tuple<Args...>&& abc) {
-		return m_data[std::forward<std::tuple<Args...>>(abc)];
+	val& operator[](const std::tuple<Args...>&& abc) {
+	 	return m_data[std::forward<std::tuple<Args...>>(abc)];
+	}
+	void reserve(const std::size_t items) {
+		m_data.reserve(items);
 	}
 	
 	template<typename T>
-		const auto operator[](T t) {
-		using currentType = std::decay_t<decltype(std::get<0>(tupleType{})) >;
+	auto operator[](T t) {
 		static_assert(std::is_convertible_v < std::decay_t<T>, std::decay_t<decltype(std::get<0>(tupleType{}))> >);
-
-		return multiKeyMapIndexer<sizeof...(Args)-1, T>(*this, std::make_tuple(std::move(t)));
+		return multiKeyMapIndexer<sizeof...(Args)-1, T>(this->m_data, std::forward_as_tuple(std::move(t)));
 	}
 
-	template<int i,typename ... Targs>
-	class multiKeyMapIndexer {
+	template<int i, typename ... Targs>
+	class multiKeyMapIndexer {//i prolly need a better name for this ;-;
 	public:
-		multiKeyMapIndexer(type& m, std::tuple<Targs...>&& args) :mapy(m),m_stuff(std::move(args)) {};
+		multiKeyMapIndexer(mapType& m, std::tuple<Targs...>&& args) :mapy(m),m_stuff(std::move(args)) {};
 		template<typename T>
-		const auto operator[](T t) const{
-			using currentType = std::decay_t<decltype(std::get<sizeof...(Args)-i>(tupleType{}))>;
-			static_assert(std::is_convertible_v < std::decay_t<T>, currentType >);
-
-			return multiKeyMapIndexer<i - 1, Targs..., T>(mapy,std::tuple_cat(std::move(m_stuff),std::make_tuple(std::move(t))));
+		decltype(auto) operator[](T t) const{
+			static_assert(std::is_convertible_v < std::decay_t<T>, std::decay_t<decltype(std::get<sizeof...(Args)-i>(tupleType{}))> >);
+			if constexpr(i == 1)
+				return mapy[std::tuple_cat(std::move(m_stuff), std::forward_as_tuple(std::move(t)))];
+			else
+				return multiKeyMapIndexer<i - 1, Targs..., T>(mapy, std::tuple_cat(std::move(m_stuff), std::forward_as_tuple(std::move(t))));
 		}
 	private:
-		type& mapy;
-		std::tuple<Targs...> m_stuff;
-	};
-	template<typename ... Targs>
-	class multiKeyMapIndexer<1,Targs...> {
-	public:
-		multiKeyMapIndexer(type& m, std::tuple<Targs...>&& args) :mapy(m), m_stuff(std::move(args)) {};
-		template<typename T>
-		val& operator[](T t)const {
-			using currentType = std::decay_t<decltype(std::get<sizeof...(Args)-1>(tupleType{})) > ;
-			static_assert(std::is_convertible_v < std::decay_t<T>, currentType >);
-
-			return mapy.m_data[std::tuple_cat(std::move(m_stuff), std::make_tuple(std::move(t)))];
-		}
-	private:
-		type& mapy;
-		std::tuple<Targs...> m_stuff;
+		mapType& mapy;
+		std::tuple<Targs...>&& m_stuff;
 	};
 private:
-	class tupleHash {
-		public:
-			std::size_t operator()(const std::tuple<Args...>& thing) const{
-				return std::hash<std::size_t>()(tupleHashImpl(thing, std::index_sequence_for<Args...>()));
-			};
-		private:
-			template<std::size_t ...i>
-			std::size_t tupleHashImpl(const std::tuple<Args...>& thing,std::index_sequence<i...>)const{
-				std::size_t reVal = 0;
-				//( ( reVal^std::hash<std::decay_t<decltype(std::get<i>(thing))>>()(std::get<i>(thing)) ), ...);
-				(void)std::initializer_list<int>{(reVal^=(i+1)*(i+1)+(i+1)*std::hash<std::decay_t<decltype(std::get<i>(thing))>>()(std::get<i>(thing)), 0)...};
-				return reVal;
-			}
-	};
 	friend class multiKeyMapIndexer<1, Args...>;
-	std::unordered_map<std::tuple<Args...>, val,tupleHash> m_data;
-	//static_assert(tupleType, );
+	std::unordered_map<tupleType, val> m_data;
 };
-
-
-/*
-template<int i>
-struct worky{
-std::size_t operator()(const std::tuple<Args...>& things)const {
-return ((i+1)*(i+1)+(i+1)*std::hash<std::decay<decltype(std::get<i>(things))>::type>()(std::get<i>(things))) ^ worky<i + 1>()(things);
-}
-};
-template<>
-struct worky<sizeof...(Args)> {
-std::size_t operator()(const std::tuple<Args...>& things)const {
-return 0;
-}
-};
-//*/
